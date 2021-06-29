@@ -56,11 +56,18 @@ theme_set(theme_minimal())
 options(warn=-1)
 ```
 
+
+```{r Data Location, echo=FALSE}
+file_name = "anes_timeseries_2020_spss_20210324.sav"
+dir_name = "../data/"
+location_file = paste(dir_name, file_name, sep="")
+```
+
 ```{r load and clean data, echo=FALSE, warning=TRUE, message=FALSE}
 
 # read in stat file from ANES 2020 time series study
 
-anes <- read_dta("anes_timeseries_2020_stata_20210324.dta")
+anes <- read_sav(location_file)
 
 
 # clean data 
@@ -122,7 +129,7 @@ The coronavirus pandemic introduced new challenges to voting in the 2020 electio
 ## Description of Data
 ```{r, echo=FALSE}
 all <- sjPlot::tab_xtab(var.row = anes$voting_difficulty, var.col = anes$party_affiliation, title = "Table 1: ANES 2020 Post Election Difficulty of Voting", show.row.prc = FALSE, show.col.prc = TRUE, file="test.html")
-
+#all
 screenshot <- webshot("test.html", paste(getwd(),"/", "cross_table1_image.png"), cliprect = "viewport")
 
 image2 <- image_read(paste(getwd(),"/", "cross_table1_image.png")) %>% image_crop("480x480+1")
