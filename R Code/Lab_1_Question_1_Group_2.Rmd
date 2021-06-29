@@ -1,0 +1,255 @@
+---
+title: 'Lab 1: Question 1'
+author: "Group 2: Andres de la Rosa, Elizabeth Khan, Carlos Moreno"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+  html_document:
+    df_print: paged
+---
+
+\clearpage
+
+```{r load packages, echo=FALSE, warning=FALSE, message=FALSE}
+library(dplyr)
+library(ggplot2) 
+library(tidyverse) # if you want more, but still core, toolkit
+
+library(haven) #To read SAV file
+library(magrittr)
+library(knitr)
+library(patchwork)
+library(sjPlot)  #Library to create cross table
+
+# Used to convert sjPlot html table to image for pdf printing purposes
+library(webshot)
+library(magick)
+
+library(gridExtra)
+library(grid)
+library(kableExtra) #To save HTML graph as a png file
+
+library(plotly)
+library(cowplot)
+library(png)
+
+library(htmlTable)
+
+theme_set(theme_minimal())
+
+options(tinytex.verbose = TRUE)
+options(warn=-1)
+```
+
+```{r Data Location, echo=FALSE}
+file_name = "anes_timeseries_2020_spss_20210324.sav"
+dir_name = "../data/"
+location_file = paste(dir_name, file_name, sep="")
+```
+
+```{r load and clean data, echo=FALSE, warning=TRUE, message=FALSE}
+#Read SAV file with data
+
+anes2020_sav = read_sav(location_file)
+```
+
+```{r clean data, echo = FALSE}
+q1_data <- anes2020_sav %>%
+  select(V202443, V201507x) %>%
+  filter (V202443 > 0 & V202443 < 4) %>%
+  filter (V201507x > 0) %>%
+  filter (!is.na(V202443)) %>%
+  filter (!is.na(V201507x))
+
+#Replace values for Party_Affiliation (1 = Democrat, 3 = Republican)
+q1_data <- q1_data %>%
+  mutate(Voter_Age = V201507x,
+         Party_Affiliation = ifelse(V202443==1, "Democrat", "Republican")) %>%
+  select(Voter_Age, Party_Affiliation)
+
+#Create Column with Age-Groups (to be used to create Cross Table)
+q1_data <- q1_data %>%
+  mutate(Age_Group = cut(Voter_Age, c(0,30,50,80)))
+```
+
+```{r Created Graphs, echo=FALSE}
+class(q1_data$Voter_Age) <- "Numeric"
+
+#Box-plot - Voter Age for each Political Party (Democrats & Republicans)
+bp1 <- q1_data %>%
+  ggplot(na.rm=TRUE) +
+  aes(x = Party_Affiliation, y = Voter_Age, fill = Party_Affiliation) +
+  geom_boxplot(outlier.colour="red", outlier.shape=8, outlier.size=4) +
+  stat_summary(fun="mean") +
+  labs(title="Graph 1: Box Plot of Voter Age \nfor Political Parties", x="Political Party", y = "Age") +
+  theme(legend.position="none", text = element_text(size = 8)) +
+  scale_fill_manual(values=c("blue", "red")) +
+  scale_y_continuous(name="Age of Voter", limits=c(18, 80))
+
+Age_Distribution <- q1_data %>%
+  ggplot() + 
+  aes(x = Voter_Age, fill = Party_Affiliation) + 
+  geom_histogram(position = 'dodge', bins=20) +
+  labs(
+    title    = 'Graph 2: Age Distribution by Political Party',
+    subtitle = 'Both Parties Have a Multi-Modal Normal Like Age Distribution', 
+    x        = 'Age',
+    y        = '# of Voters', 
+    fill     = 'Political Party Affiliation'
+  ) +
+  xlim(18, 80) +
+  theme_minimal() +
+  scale_fill_manual(values=c("blue", "red")) +
+  theme(legend.position = "bottom", text = element_text(size = 8)) #+
+  #facet_grid(Party_Affiliation ~ .)
+
+```
+
+```{r Cross Table Age Group vs. Political Party, echo=FALSE}
+table1 <- sjPlot::tab_xtab(var.row = q1_data$Age_Group, var.col = q1_data$Party_Affiliation, title = "Table 1: Age Split by Party Affiliation", show.row.prc = FALSE, show.col.prc = TRUE, file="test.html")
+#table1
+
+# To Create a PNG file for the cross-table to be uploaded in document.
+screenshot <- webshot("test.html", "cross_table_image.png", cliprect = "viewport")
+image2 <- image_read("cross_table_image.png") %>% image_crop("350x350+1")
+image_write(image2, path = "cross_table_image.png", format = "png")
+
+```
+
+
+```{r Function to Create Age Group Frequency by Party, echo=FALSE}
+#Function to create a frequency table by Age Group for a Political Party
+#Input: data_input = data frame; Political_Party = Democrat or Republican
+#Return: Frequency table for a given political Party
+
+group_party <- function(data_input, Political_Party) {
+  if (Political_Party == ""){
+    gp <- data_input %>%
+    group_by(Age_Group) %>%
+    summarize(Number_Voters = n()) %>%
+    mutate(freq = Number_Voters / sum(Number_Voters))
+  } else {
+    gp <- data_input %>%
+    filter(Party_Affiliation == Political_Party) %>%
+    group_by(Age_Group) %>%
+    summarize(Number_Voters = n()) %>%
+    mutate(freq = Number_Voters / sum(Number_Voters))
+  }
+  return(gp)
+}
+```
+
+```{r Create Frequency Table for Political Parties, echo=FALSE}
+ft_democrat <- group_party(q1_data, "Democrat")
+ft_republican <- group_party(q1_data, "Republican")
+ft_total <- group_party(q1_data, "")
+```
+
+```{r Created Tables, echo=FALSE}
+table2 <- q1_data %>%
+  group_by(Party_Affiliation) %>%
+  summarize(Average_Age = mean(Voter_Age),
+            Standard_Deviation = sd(Voter_Age)
+            )
+```
+
+```{r Key Metrics to be included in text, echo=FALSE}
+total_50plus <- round(ft_total[ft_total$Age_Group == "(50,80]", "freq"]*100,1)
+dem_50plus <- round(ft_democrat[ft_democrat$Age_Group == "(50,80]", "freq"]*100,1)
+rep_50plus <- round(ft_republican[ft_republican$Age_Group == "(50,80]", "freq"]*100,1)
+
+total_50plus <- total_50plus[1,1]
+dem_50plus <- dem_50plus[1,1]
+rep_50plus <- rep_50plus[1,1]
+
+dem_total <- as.double(round(sum(ft_democrat["Number_Voters"],1)))
+rep_total <- as.double(round(sum(ft_republican["Number_Voters"],1)))
+dem_avg_age <- as.double(round(table2[table2$Party_Affiliation == "Democrat", "Average_Age"],1))
+dem_std_age <- as.double(round(table2[table2$Party_Affiliation == "Democrat", "Standard_Deviation"],1))
+rep_avg_age <- as.double(round(table2[table2$Party_Affiliation == "Republican", "Average_Age"],1))
+rep_std_age <- as.double(round(table2[table2$Party_Affiliation == "Republican", "Standard_Deviation"],1))
+dif_avg_age <- dem_avg_age - rep_avg_age
+
+```
+## Importance and Context
+Question of interest: **Are Democratic voters older or younger than Republican voters in 2020?**  
+
+The demographic profile of voters in the US has changed over the last decades. As the US population gets older, so does the profile of US voters.  A 2019 Pew Research study (“The Changing composition of the Electoral and Partisan Coalitions”) has found this age trend to be more common among Republican voters than Democrats. The 2019 report stated that most registered voters in 2019 (52%) were ages 50 and older, representing a minimal change from 2012 (51%).  However, it is much higher than in 2004 (44%). In addition, in 2019, while 56% of Republican voters were ages 50 and older, a smaller share of Democratic voters was in that age group (50%).
+
+The ANES 2020 Time Series Study (preliminary results) seems to support this demographic trend.  As presented in Table 1, while `r total_50plus`% of overall voters are 50 years of age and older, for the Democrats only `r dem_50plus`% of voters were 50 years of age and older, versus `r rep_50plus`% for republicans.  
+
+```{r pressure, echo=FALSE, out.height="40%", out.width="40%"}
+knitr::include_graphics("cross_table_image.png")
+```
+  
+A change in age composition for the US political parties could have profound implications for how politicians run their campaigns.  If confirmed, age could be driving the shift of public opinion for important social issues, which could change how political parties interact with constituents and potential voters, including the selection of social media technologies and the development of more targeted messages that are pertinent to this generation.  
+
+Another implication is that age is a recognized demographic variable impacting voter engagement. It has been established that older voters are more likely to participate in the democratic process versus younger voter. Thus, the proposed research question has profound implications for political parties and the policies that will govern the US in the decades to come.  
+
+## Description of Data
+
+To answer the question of interest, we will use the preliminary results from American National Election Studies (ANES) 2020 Time Series Study.  This study combines pre-Election and post-Election survey results. Participants were reached via internet, phone, and video.  Pre-election interviews began in August 2020 and continued until Election Day (Tuesday, November 3rd). Post-election interviews began soon after the election and continued through the end of December 2020.  
+
+To answer the question, we focused on participants identifying themselves as Democrats (`r dem_total` voters) or Republican (`r rep_total` voters) in the post-election survey using the variable V202443 ("Which party does Respondent feel closest to?") renamed as “Party_Affiliation”.  For the age of the voters, we used the variable V201507x renamed as “Voter_Age”, which includes the Respondent Age.   
+
+Graph 1 includes a Box-Plot for the age of Democrat and Republican voters.  The ages for both parties ranges from 18 to 80 years of age, where 80 was assigned to any voter 80 years or older.  This graph also shows a slightly younger age distribution for Democrats when compared to republicans. The black dot in the graph identify the average age for each group.  
+
+In this dataset, Democrats have an average age of `r dem_avg_age` years with a standard deviation of `r dem_std_age` years, while Republican voters have an average age of `r rep_avg_age` years with a standard deviation of `r rep_std_age`.  Thus, the difference in average years between Democrats and Republicans is of `r dif_avg_age` years.  Graph 2 shows that both of the age distributions for Democrats and Republicans are multi-modal with a slight skew to the left.  
+
+```{r Box Plot and Age Distribution of Political Parties, echo=FALSE, fig.height=3}
+plot_grid(bp1, Age_Distribution, rel_heights = c(1,1), rel_widths = c(0.5,1), scale=c(0.8,0.8))
+```
+
+
+## Most appropriate test 
+
+To test the hypothesis, we propose a t-test to compare two unpaired means. There are four important conditions for the proposed unpaired t-test:   
+
+**1.	Unpaired data:** the grouping variable is party affiliation (Democrat or Republican), and as each respondent can only be affiliated with a single party, we consider this an unpaired data.  
+**2.	The variable of interest must be metric:** the variable of interest is *Age of Voters*, which is a metric variable where basic arithmetic operations such as average are possible.  
+**3.	I.I.D:** The design of the study suggests the data was generated through an **independent and identically distributed (i.i.d.)** sampling process. Participants in this survey were randomly drawn from the USPS delivery sequence file. The USPS delivery sequence file contains all residential addresses in the 50 states across the U.S. and all addresses had an equal chance of being selected.  
+**4.	Normally Distributed:** *Graph (2)* shows that the age distribution, for both Democrats and Republicans, is multi-modal, slightly skewed to the left as  `r total_50plus`% of voter in the sample are 50 years of age and older (`r dem_50plus`% for Democrats, `r rep_50plus`% for Republicans).  In addition, the large sample size of `r dem_total` Democrats and `r rep_total` Republicans,  supports a normal like distribution based on the Central Limit Theorem (CLT).  
+
+### **For the t-test, the null and alternative hypothesis are:**   
+
+>**•	Null Hypothesis (Ho)** - There is no difference between the average age of Democrat Voters when compared to average age of Republican Voters.    
+**•	Alternative Hypothesis (Ha)** - The average age of Democrat Voters is different from the average age of Republican Voters.  
+
+In short, this report aims to find out if there are significant differences in the average age of Democrat voters when compared with average age of Republican voters. These hypotheses can be expressed in the following way:  
+
+$$H_0:\mu_D-\mu_R=0$$
+$$H_a:\mu_D-\mu_R\neq0$$
+$$Where: \mu_D = Average\;Age\;of\;Democrats,  and \;\mu_R = Average\;Age\;of\;Republicans$$
+
+
+We will use a two-tailed test, as this is the strictest test which would help identify if there are significant differences (or not) in the average age of the two groups (Democrats and Republicans).  
+
+We will use p-value as the rejection criteria, with an alpha of 0.05. Thus, if the t-test p-value is less than 0.05, we would reject the null hypothesis (Ho), otherwise, we will fail to reject it.  
+
+## Test, results and interpretation
+
+```{r t-test, echo=FALSE}
+t_test <- t.test(q1_data$Voter_Age ~ q1_data$Party_Affiliation)
+
+#Key Metrics from t.test: Just for reference.
+#"statistic"   "parameter"   "p.value"     "conf.int"    "estimate"
+#"null.value"  "alternative" "method"      "data.name"
+```
+
+With a p-value of `r format(t_test$p.value, digits=9, decimal.mark=",")` which is less than alpha (0.05), we reject the null hypothesis that the average age of Democrat Voters is equal to the Average Age of Republican Voters.  Thus, there is evidence suggesting that their average age is different.  As the difference in average age (`r dif_avg_age` years) is negative (Confidence Interval (CI): `r round(t_test$conf.int[1],1)`, `r round(t_test$conf.int[2],1)`), it suggests that the average age of Democrats is lower than average age of Republicans. 
+
+Though, the difference in average age of `r dif_avg_age` years between Democrats (`r dem_avg_age` years) and Republicans (`r rep_avg_age`  years) is significant, it seems relatively small.  In practical terms, within the span of a person's life, `r dif_avg_age` years is a relatively small difference.  The average age is hiding an important trend which can only be observed by tracking the change in age structure through time, such as - How age group distribution is changing through time? Which age groups are taking on more relevance?  
+
+As discussed at the beginning of this report, a 2019 Pew Research study found that though US voters have aged as the US population ages, this trend has been larger among the Republican voters when compared to Democrats Voters.  The findings in this report seems to align with this trend, as the data suggests that the average age of Democrats is lower than average age of Republicans.  
+
+The change in the voters age structure is expected to influence the way politicians run their campaigns.  Politicians will need to adjust the way they reach potential voters, and modify the type of messages they use, as younger voter will continue to drive the shift in public opinion in some important social issues.  
+
+## Test Limitations
+One limitation of the t-test is that it focuses in comparing overall averages.  While the average is a convenient metric, it hides key information such as the actual age structure for each party.  It would be important to identify the age groups taking on more relevance, and how this has changed through time.  As it can be seen in Table 1, it seems that the group (30 to 50] and (0 to 20] years of age are becoming important age groups for Democrats.
+
+## References:
+(1) Pew Research Center. (2020, Jun 2). "The changing composition of the electorate and partisan coalitions". Pew Research Center - U.S. Politics & Policy. https://www.pewresearch.org/politics/2020/06/02/the-changing-composition-of-the-electorate-and-partisan-coalitions/ 
+(2) American National Election Studies (ANES) - 2020 Time Series Study (Preliminary Results). 2021, Mar 24. https://electionstudies.org/data-center/2020-time-series-study/
+
+
