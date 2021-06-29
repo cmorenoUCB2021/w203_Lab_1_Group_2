@@ -1,0 +1,225 @@
+---
+title: 'Lab 1: Question 3'
+author: "Group 2: Andres de la Rosa, Elizabeth Khan, Carlos Moreno"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+  html_document:
+    df_print: paged
+---
+
+\clearpage
+
+```{r load packages, echo=FALSE, warning=FALSE, message=FALSE}
+pacman::p_load(readsdmx,readxl,tidyverse,  scales, data.table, stringr, lubridate,
+               zoo, odbc, parsedate, DBI,httr,readxl, haven)
+pacman::p_load(tidyverse, haven ,magrittr, knitr, patchwork, sjPlot, webshot, magick, gridExtra, grid, kableExtra, plotly, cowplot, png )
+
+
+pacman::p_load(tidyverse, haven ,magrittr, knitr, patchwork, sjPlot, webshot, magick, gridExtra, grid, kableExtra, plotly, cowplot, png )
+
+theme_set(theme_minimal())
+
+options(tinytex.verbose = TRUE)
+options(warn=-1)
+```
+
+```{r load and clean data, echo=FALSE, warning=TRUE, message=FALSE}
+dataset <- read_dta("C:/Users/andre/Google Drive/00_MIDS_BERKELEY/203-Statistics for Data Science/Lab-1-Hypothesis-Testing/anes_timeseries_2020_stata_20210324/anes_timeseries_2020_stata_20210324.dta")
+dataset <- as.data.frame(dataset)
+analysis <- dataset %>% select(V202310, V201147x,V201150x,V201144x)
+colnames(analysis) <- c('science_belief','governor_handling', 'localgov_handling', 'president_handling')
+```
+
+```{r clean data, echo = FALSE, message=FALSE}
+importance_scale <- function(x) {
+  ifelse(x==-9, 'Refused',
+         ifelse(x==-7,'No post-election data, deleted due to incomplete interview',
+                ifelse(x==-6, 'No post-election interview', 
+                       ifelse(x==-5, 'Interview breakoff', 
+                              ifelse(x==1, 'Not at all important', 
+                                     ifelse(x==2, 'A litte important', 
+                                            ifelse(x==3, 'Moderately important', 
+                                                   ifelse(x==4, 'Very important', 
+                                                          ifelse(x==5, 'Extremely important', 'no')))))))))
+}
+
+approval_scale <- function(x) {
+  ifelse(x==-2, 'DK/RF in V201145 or V201146', ifelse(x==1, 'Approve strongly', 
+                                                   ifelse(x==2, 'Approve not strongly', 
+                                                          ifelse(x==3, 'Disapprove not strongly', 
+                                                                 ifelse(x==4, 'Disapprove strongly',  'no')))))}
+
+
+
+```
+
+```{r Created Graphs, echo=FALSE, message=FALSE}
+##Creating the table for people who believe in science
+science_belief_importance <- as.data.frame(table(importance_scale(analysis$science_belief[analysis$science_belief %in% c(1,2,3,4,5)])))
+
+colnames(science_belief_importance) <- c('importance_scale', 'amount_of_people')
+
+##Exploratory Data Analysis- People who believe in science. 
+text_size=15
+people_science_plot <- ggplot(science_belief_importance, aes(x=importance_scale, y=amount_of_people)) +
+  geom_bar(stat='identity', fill='steelblue') +
+  labs(title= "Graph 1- Post: How Important Should Science be for Decisions about COVID-19?", 
+       subtitle="n=8,280 / 7,383 valid responses", caption= "ANES 2020 Times Series Study") + 
+  xlab('Response') +
+  ylab('Amount of People') +
+  theme_minimal()  +
+  scale_x_discrete(labels = c('Extremely important',
+                              'Very important',
+                              'Moderately important',
+                              'A little important',
+                              'Not at all important')) +
+  geom_segment(aes(x=0.5, xend=2.5, y=4000, yend=4000)) +
+  geom_segment(aes(x=0.5, xend=0.5, y=4000, yend=3800)) +
+  geom_segment(aes(x=2.5, xend=2.5, y=4000, yend=3800)) +
+  annotate("text", x = 1.5, y = 4250, label='People who believe \n in Science for COVID-19 decisions (n=5,741)', size=5.5) + 
+  
+  geom_segment(aes(x=2.5, xend=5.5, y=2500, yend=2500)) +
+  geom_segment(aes(x=2.5, xend=2.5, y=2500, yend=2300)) +
+  geom_segment(aes(x=5.5, xend=5.5, y=2500, yend=2300)) +
+
+  annotate("text", x =4, y = 2750, label="People who don't believe \n in Science for COVID-19 decisions (n=1,641)", size=5.5)+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_text(size=text_size), 
+        axis.title.x = element_blank(),
+        axis.text.y = element_text(size=text_size),
+        axis.title.y = element_blank(),
+        title = element_text(size=19))
+
+
+##We leave the dataset with information about believers and don't believers of science for handling COVID
+analysis$science_belief <- ifelse(analysis$science_belief %in% c(1,2,3), "Don't Believe", 
+                                  ifelse(analysis$science_belief %in% c(4,5), "Believer", 
+                                         "Eliminate"))
+analysis <- analysis %>% filter(science_belief != 'Eliminate')
+
+
+analysis$governor_handling2 <- approval_scale(analysis$governor_handling)
+analysis <- analysis %>% filter(governor_handling2 != 'DK/RF in V201145 or V201146')
+
+stacked_chart <- analysis %>% select(science_belief, governor_handling2) %>% 
+  group_by(science_belief, governor_handling2) %>% 
+  summarise(amount_of_respondants= n())
+
+stacked_chart<-  stacked_chart %>% group_by(governor_handling2) %>%
+  mutate(percent=amount_of_respondants/sum(amount_of_respondants))
+
+
+
+text_size=15
+stacked_chart <-ggplot(stacked_chart, aes(fill=science_belief , y=percent, x=governor_handling2)) + 
+  geom_bar(position="fill", stat="identity")  +
+  geom_text(aes(label= paste0(round(percent,2)*100, '%')), position=position_stack(vjust=0.5), size=6.5) + 
+  scale_fill_manual(values=c("steelblue", "orange")) +
+  labs(title= "Graph 2- Approve or disapprove Governor Handling COVID-19  by People who Believe in Science \n in COVID Response", 
+       subtitle="n=8,280 / 7,337 valid responses", caption= "ANES 2020 Times Series Study", fill= "Science Belief") + 
+  xlab(' ') +
+  ylab('Percentage of People') +
+  scale_x_discrete(labels = c('Approve strongly',
+                              'Approve not strongly',
+                              'Disapprove not strongly',
+                              'Disapprove strongly')) +
+  annotate("text", x = 1, y = 1.05, label='n=2,915', size=5.5) +
+  annotate("text", x = 2, y = 1.05, label='n=1,664', size=5.5) +
+  annotate("text", x = 3, y = 1.05, label='n=796', size=5.5) +
+  annotate("text", x = 4, y = 1.05, label='n=1,962', size=5.5) +
+  theme_minimal()+ 
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_text(size=text_size), 
+        axis.title.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        title = element_text(size=19), 
+        legend.text = element_text(size=text_size)
+        )
+
+
+```
+
+
+
+
+
+## Importance and Context
+The question of interest for this report is: **Are people who believe that science is important for making government decisions about COVID-19 more likely to disapprove of the way their governor is handling the pandemic?**  
+
+In Political Science, to design better policies and recommendations, we need to consider how common scientific knowledge can influence political decisions and motivations in citizens of democratic countries. It is known that certain sociodemographic groups influenced by religion, beliefs, and other ways of life are reluctant to accept science in decision-making. They believe that it will not make a difference because it is falsely manipulated by a group that does not align with their core values and beliefs. In the past year, these groups may have played a role in spreading COVID-19 since they opposed recommendations such as wearing masks, washing their hands often, and even vaccinating. Also, they are against business closures and social distancing, to the extreme case where some of them believe that the Chinese government sent COVID-19 to harm The United States' economic power.
+
+On the other hand, people who believe in science care about the scientific process that is moved around evidence. They follow what specialists and professionals in specific areas recommend. People who believe in science are more likely to agree with authorities to contain COVID-19 wearing masks and practicing social distancing. For this reason, we are interested in knowing how belief in science in decision-making affects the approval of government handling on COVID-19 on a state level. 
+ 
+
+## Description of Data
+
+We will use data from the 2020 American National Election Studies (ANES) to address this question.  This is an observational dataset based on a sample of respondents drawn from the YouGov platform. We selected two variables from this dataset and cleaned the responses such that we have valid answers to perform the statistical test that corresponds and explains our analysis. 
+
+From the 1,381 variables with this dataset, we focused on two variables: (1) PRE: SUMMARY: Approve or disapprove R's governor handling COVID-19 and (2) POST: How important should science be for decisions about COVID-19.  For question one, 8,218 respondents out of 8,280 correctly answer the question. For question two, 7,383 respondents correctly answer the question. Knowing this, we will perform our analysis on a sample of size 7,337.
+
+To organize the answer to our main question, we divided the dataset into two groups: people who believe science is important for COVID decisions and people who don’t believe science is important for COVID decisions. We did this based on question (2).  People who believe in science correspond to the respondents who consider that science is extremely important and very important for decisions about COVID-19. People who don’t believe in science correspond to respondents that consider that science is moderately, a little, and not at science all important for decisions about COVID-19.  Graph 1 can help us see the distribution of the answers in our dataset and divide respondents in this sample.  Data is reported on a 5-point Likert scale that ranges from 1 (“not at all”) to 5 (“extremely”), and the same question is asked to each respondent.
+
+
+```{r How Important Should Science Be for Decisions about COVID-19,  fig.height = 6.8, fig.width = 12, fig.align = "center", echo=FALSE}
+people_science_plot
+```
+We made this transformation because we wanted to divide the data into people who believe science is important for COVID decisions and people who don’t believe science is important for COVID decisions. People that consider that it is moderately important are on the middle ground, but we decide to include them in the group of people who don’t believe in science since COVID-19 is a pandemic that involves a scientifical description and a scientifical solution such as clinical trials, vaccines, pills, and other medical recommendations.  
+
+After we break the sample into two groups, we examined the approval on how the governors' handling of COVID differs between people who believe in science and people who don’t believe in science. As we can see from graph 2, 33% of people who disapprove strongly how its governor is handling the pandemic correspond to the group of people who don’t believe in science. On the other hand, 16% of people who approve strongly the measurements taken by their governor are people who don’t believe in science.  Clearly, we can see a shift in this distribution as we approach the disapproval spectrum. 
+
+```{r Believers and non-believers by approval response,  fig.height = 6.8, fig.width = 13, fig.align = "center", echo=FALSE}
+stacked_chart
+```
+
+Given this information we formulate the following hypothesis to determine if there is a statistical difference on the approval rates between people who believe and science and people who don’t: 
+
+> $$H_0:P\left(Rank\ of\ D>{Rank\ of\ R}\right)=P\left(Rank\ of\ D\le R a n k\ of\ R\right))$$
+> $$H_A:P\left(Rank\ of\ D>{Rank\ of\ R}\right)\neq P\left(Rank\ of\ D\le R a n k\ of\ R\right)$$
+
+where D represents a random person who believe that science is important for COVID-19 decisions and R represents a random person who believe that science is not important for COVID-19 decisions. 
+
+
+## Most appropriate test 
+
+To answer this question, we determined that the non-parametric Wilcoxon Rank Sum Test is the most appropriate test for this research question.  It can be executed in R using __wilcox.test__.  The main requirements for using this test are:
+
+**1.	Unpaired data:** the grouping variable is science believer (science believer or non science believer), and as each respondent can only be science believer or not science believer and not both, we consider this unpaired data.
+**2.	Ordinal variable:** the main variable for comparison is ordinal scale, which goes from level 1 to 5 (1 = approve strongly, 4 = disapprove strongly)
+**3.	I.I.D. :** The design of the study suggests the data was generated through an independent and identically distributed (i.i.d.) sampling process. Participants in this survey were randomly drawn from the USPS delivery sequence file. The USPS delivery sequence file contains all residential addresses in the 50 states across the U.S. and all addresses had an equal chance of being selected.
+
+We will use p-value as the rejection criteria, with an alpha of 0.05. Thus, if the Wilcox test p-value is less than 0.05, we would reject the null hypothesis (Ho), otherwise, we will fail to reject it.
+
+
+## Test, results and interpretation
+
+```{r t-test, echo=FALSE, warning=FALSE, message=FALSE}
+analysis <- analysis %>% filter(governor_handling != -2)
+wilcox.test(analysis$governor_handling ~ analysis$science_belief)
+
+analysis$science_belief2 <- ifelse(analysis$science_belief=="Believer", 1, 2)
+biserial_cor <- cor.test(as.numeric(analysis$governor_handling), as.numeric(analysis$science_belief2), method='spearman')
+```
+
+With a p-value of >0.0000 (less than 0.05) for the Wilcoxon Rank Sum test, we reject the null hypothesis. 
+Thus, it supports that the probability that a randomly selected observation’s rank of a voter who believe in science for COVID decisions being greater than the rank of a random voter who don’t believe in science for COVID decisions is different from the probability of that voter’s rank who believe in science for COVID decisions being less than or equal to the rank of a voter who doesn’t believe in science for COVID decisions. In short, science belief about gives us information on how the voter approves its governor decisions about COVID. 
+
+
+For practical significance, we conducted a rank-biserial correlation which measures how much reported approval rates varies by science belief (the effect size). The correlation coefficient is 0.158255, which suggests a small positive effect. Even though the p-value is significant, having a correlation coefficient close to 0 indicates little relationship between believing in science for COVID decisions and approval rates to governors' decisions in COVID. 
+
+
+## Test Limitations 
+We do not know precisely in which direction the relationship between voters is. We know that there is a difference between people who believe and science and people who do not in the way that they approve of their local government. However, we do not know exactly in which magnitude they differ from each other. Also, the division of groups of people who believe in science and people who don’t believe may be rigid. Finally, not necessarily people who approve their governors are firm believers of science. They might trust their state government and marked the question since they believe in their actions.  
+
+
+
+
+
+
+
+
+
